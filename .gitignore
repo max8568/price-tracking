@@ -1,0 +1,12 @@
+node_modules/
+ms-playwright/
+data/products.json
+data/*.tmp
+daemon/
+*.log
+
+# 含真實 Telegram token，不提交（請改用 config.example.js 範本）
+config.js
+
+# 本機工具狀態
+.claude/

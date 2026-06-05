@@ -1,0 +1,29 @@
+{
+  "name": "price-tracking",
+  "version": "1.0.0",
+  "description": "購物網站指定商品的價格變動追蹤工具（每日比價 + Telegram 通知 + 網頁管理 + 開機自啟）",
+  "main": "backend/tracker.js",
+  "scripts": {
+    "backend": "node backend/tracker.js",
+    "frontend": "node frontend/server.js",
+    "start": "node backend/tracker.js",
+    "install-service": "node install-service.js",
+    "uninstall-service": "node uninstall-service.js",
+    "postinstall": "playwright install chromium"
+  },
+  "keywords": [
+    "price-tracking",
+    "telegram",
+    "playwright"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^0.66.0",
+    "node-windows": "^1.0.0-beta.8",
+    "playwright": "^1.44.0",
+    "uuid": "^9.0.1"
+  }
+}

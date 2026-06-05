@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>商品價格追蹤</title>
+  <style>
+    :root { --bg:#f4f5f7; --card:#ffffff; --line:#e2e8f0; --text:#1e293b; --muted:#64748b; --accent:#0284c7; --danger:#dc2626; --ok:#059669; --up:#dc2626; --down:#059669; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 1000px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { font-size: 22px; margin: 8px 0 4px; }
+    .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:20px; }
+    .addbar { display:flex; gap:8px; }
+    input[type=text]{ flex:1; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:#f8fafc; color:var(--text); font-size:14px; }
+    button { cursor:pointer; border:none; border-radius:8px; padding:10px 14px; font-size:14px; font-weight:600; }
+    .btn-add { background:var(--accent); color:#ffffff; }
+    .btn-add:disabled { opacity:.6; cursor:default; }
+    .btn-del { background:transparent; color:var(--danger); border:1px solid var(--line); padding:6px 10px; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); font-size:14px; vertical-align: middle; }
+    th:not(:first-child), td:not(:first-child) { text-align: center; }
+    th { color:var(--muted); font-weight:600; font-size:12px; letter-spacing:.04em; }
+    .name { font-weight:600; max-width:360px; }
+    .name a { color:var(--text); text-decoration:none; }
+    .name a:hover { color:var(--accent); }
+    .price { font-variant-numeric: tabular-nums; font-weight:700; }
+    .muted { color:var(--muted); font-size:12px; }
+    .up { color:var(--up); } .down { color:var(--down); }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; background:#f1f5f9; border:1px solid var(--line); color:var(--muted); }
+    .empty { color:var(--muted); text-align:center; padding:24px; }
+    #msg { min-height: 20px; font-size: 13px; margin-top:8px; }
+    .err { color: var(--danger); } .ok { color: var(--ok); }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .btn-refresh { background:#f1f5f9; color:var(--accent); border:1px solid var(--line); padding:6px 10px; }
+
+    /* 連線資料檔狀態列 */
+    .conn { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .conn .dot { width:8px; height:8px; border-radius:50%; background:var(--danger); flex:none; }
+    .conn.ok .dot { background:var(--ok); }
+    .conn .label { font-size:13px; color:var(--muted); }
+    .conn .file { font-size:12px; color:var(--muted); font-family: ui-monospace, "Consolas", monospace; }
+    .btn-conn { background:var(--accent); color:#fff; padding:8px 14px; }
+    .gate { text-align:center; padding:28px; color:var(--muted); }
+    .gate .big { font-size:15px; color:var(--text); margin-bottom:6px; font-weight:600; }
+    .hide { display:none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🛒 商品價格追蹤</h1>
+    <div class="sub">後端每小時自動比對前一小時價格，有變動透過 Telegram 通知。此頁面僅負責新增、檢視與刪除。</div>
+
+    <!-- 連線資料檔 -->
+    <div class="card">
+      <div class="conn" id="conn">
+        <span class="dot"></span>
+        <span class="label" id="connLabel">尚未連線資料檔</span>
+        <span class="file" id="connFile"></span>
+        <span style="flex:1"></span>
+        <button class="btn-conn" id="connBtn">連線 products.json</button>
+      </div>
+    </div>
+
+    <!-- 新增（連線後才啟用） -->
+    <div class="card" id="addCard">
+      <div class="addbar">
+        <input id="url" type="text" placeholder="貼上商品網址（momo / PChome / 蝦皮）…" disabled />
+        <button id="addBtn" class="btn-add" disabled>新增追蹤</button>
+      </div>
+      <div id="msg"></div>
+    </div>
+
+    <!-- 清單 -->
+    <div class="card">
+      <div class="toolbar">
+        <span class="muted">追蹤清單</span>
+        <button id="refreshBtn" class="btn-refresh">重新整理</button>
+      </div>
+
+      <div id="gate" class="gate">
+        <div class="big">尚未連線資料檔</div>
+        請點上方「連線 products.json」，選擇專案內的 <span class="file">data/products.json</span>。<br>
+        連線後此瀏覽器會記住該檔，下次開啟自動重連。
+      </div>
+
+      <table id="tableWrap" class="hide">
+        <thead>
+          <tr>
+            <th>商品</th>
+            <th>站別</th>
+            <th>現價</th>
+            <th>前一次</th>
+            <th>最後檢查</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="empty" class="empty hide">尚無追蹤商品</div>
+    </div>
+  </div>
+
+  <script>
+  // ──────────────────────────────────────────────
+  // 單檔前端：透過 File System Access API 直接讀寫 data/products.json
+  // handle 存在 IndexedDB，下次開啟自動重連（共用後端讀的同一個檔）
+  // ──────────────────────────────────────────────
+  const $ = (id) => document.getElementById(id);
+  const SITE_LABEL = { momo: 'momo', pchome: 'PChome', shopee: '蝦皮', unknown: '其他' };
+  const SUPPORTED = typeof window.showOpenFilePicker === 'function';
+
+  let handle = null;     // FileSystemFileHandle
+  let connected = false;
+  let timer = null;
+
+  // ---- IndexedDB（記住檔案 handle） ----
+  function idb() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('priceTracker', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  }
+  async function idbGet(k) {
+    const db = await idb();
+    return new Promise((res, rej) => {
+      const t = db.transaction('kv', 'readonly').objectStore('kv').get(k);
+      t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error);
+    });
+  }
+  async function idbPut(k, v) {
+    const db = await idb();
+    return new Promise((res, rej) => {
+      const t = db.transaction('kv', 'readwrite').objectStore('kv').put(v, k);
+      t.onsuccess = () => res(); t.onerror = () => rej(t.error);
+    });
+  }
+
+  // ---- 共用工具（與後端 shared/util.js 一致） ----
+  function detectSite(url) {
+    let host = '';
+    try { host = new URL(url).hostname.toLowerCase(); } catch (_) { return 'unknown'; }
+    if (host.includes('momoshop')) return 'momo';
+    if (host.includes('pchome')) return 'pchome';
+    if (host.includes('shopee')) return 'shopee';
+    return 'unknown';
+  }
+  function fmtPrice(p) { return p == null ? '—' : Number(p).toLocaleString(); }
+  function fmtTime(t) { return t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '尚未檢查'; }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function showMsg(text, cls) { $('msg').textContent = text || ''; $('msg').className = cls || ''; }
+
+  // ---- 檔案讀寫（讀-改-寫，避免覆蓋後端更新） ----
+  async function readData() {
+    const file = await handle.getFile();
+    const text = await file.text();
+    try {
+      const d = JSON.parse(text || '{}');
+      if (!Array.isArray(d.products)) d.products = [];
+      return d;
+    } catch (_) { return { products: [] }; }
+  }
+  async function writeData(data) {
+    const w = await handle.createWritable();
+    await w.write(JSON.stringify(data, null, 2));
+    await w.close();
+  }
+
+  async function ensurePermission(mode = 'readwrite') {
+    const opts = { mode };
+    if ((await handle.queryPermission(opts)) === 'granted') return true;
+    if ((await handle.requestPermission(opts)) === 'granted') return true;
+    return false;
+  }
+
+  // ---- 連線流程 ----
+  function setConnUI() {
+    $('conn').classList.toggle('ok', connected);
+    $('connLabel').textContent = connected ? '已連線資料檔' : '尚未連線資料檔';
+    $('connFile').textContent = handle ? ('· ' + handle.name) : '';
+    $('connBtn').textContent = connected ? '重新選擇檔案' : '連線 products.json';
+    $('url').disabled = !connected;
+    $('addBtn').disabled = !connected;
+    $('gate').classList.toggle('hide', connected);
+    $('tableWrap').classList.toggle('hide', !connected);
+  }
+
+  async function connect(forcePick) {
+    if (!SUPPORTED) {
+      showMsg('此瀏覽器不支援 File System Access API，請改用 Chrome 或 Edge（或執行 npm run frontend）。', 'err');
+      return;
+    }
+    try {
+      if (forcePick || !handle) {
+        const picked = await window.showOpenFilePicker({
+          multiple: false,
+          types: [{ description: 'products.json', accept: { 'application/json': ['.json'] } }],
+        });
+        handle = picked[0];
+        await idbPut('productsFile', handle);
+      }
+      if (!(await ensurePermission())) {
+        showMsg('未取得檔案讀寫權限。', 'err');
+        return;
+      }
+      connected = true;
+      setConnUI();
+      showMsg('');
+      await render();
+      startAutoRefresh();
+    } catch (err) {
+      if (err && err.name === 'AbortError') return; // 使用者取消選檔
+      showMsg('連線失敗：' + err.message, 'err');
+    }
+  }
+
+  // 開啟時嘗試自動重連（已記住的檔，且權限仍為 granted 才免按）
+  async function tryAutoConnect() {
+    if (!SUPPORTED) { setConnUI(); showMsg('此瀏覽器不支援自動讀寫檔案，請用 Chrome / Edge。', 'err'); return; }
+    handle = (await idbGet('productsFile')) || null;
+    setConnUI();
+    if (handle && (await handle.queryPermission({ mode: 'readwrite' })) === 'granted') {
+      connected = true; setConnUI(); await render(); startAutoRefresh();
+    } else if (handle) {
+      $('connBtn').textContent = '重新連線（需授權）';
+    }
+  }
+
+  function startAutoRefresh() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(() => { if (connected) render(); }, 30000); // 每 30 秒反映後端更新
+  }
+
+  // ---- 畫面 ----
+  async function render() {
+    if (!connected) return;
+    let data;
+    try { data = await readData(); }
+    catch (e) { showMsg('讀取資料檔失敗：' + e.message, 'err'); return; }
+
+    const rows = $('rows');
+    rows.innerHTML = '';
+    const products = data.products || [];
+    $('empty').classList.toggle('hide', products.length > 0);
+
+    for (const p of products) {
+      const tr = document.createElement('tr');
+
+      const tdName = document.createElement('td');
+      tdName.className = 'name';
+      tdName.innerHTML =
+        `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.name)}</a>` +
+        (p.lastError ? `<div class="muted err">取價警告：${escapeHtml(p.lastError)}</div>` : '') +
+        (p.currentPrice == null && !p.lastError ? `<div class="muted">等待後端首次取價…</div>` : '');
+
+      const tdSite = document.createElement('td');
+      tdSite.innerHTML = `<span class="pill">${SITE_LABEL[p.site] || p.site}</span>`;
+
+      const tdPrice = document.createElement('td');
+      tdPrice.className = 'price';
+      let cls = '';
+      if (p.currentPrice != null && p.prevPrice != null) {
+        if (p.currentPrice > p.prevPrice) cls = 'up';
+        else if (p.currentPrice < p.prevPrice) cls = 'down';
+      }
+      tdPrice.innerHTML = `<span class="${cls}">${fmtPrice(p.currentPrice)}</span>`;
+
+      const tdPrev = document.createElement('td');
+      tdPrev.className = 'muted';
+      tdPrev.textContent = fmtPrice(p.prevPrice);
+
+      const tdTime = document.createElement('td');
+      tdTime.className = 'muted';
+      tdTime.textContent = fmtTime(p.lastChecked);
+
+      const tdAct = document.createElement('td');
+      tdAct.innerHTML = `<button class="btn-del" data-del="${p.id}">刪除</button>`;
+
+      tr.append(tdName, tdSite, tdPrice, tdPrev, tdTime, tdAct);
+      rows.appendChild(tr);
+    }
+  }
+
+  // ---- 新增 / 刪除 ----
+  function uuid() {
+    return (crypto.randomUUID && crypto.randomUUID()) ||
+      ('xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0; return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      }));
+  }
+
+  async function addProduct() {
+    if (!connected) return;
+    const url = $('url').value.trim();
+    if (!/^https?:\/\//i.test(url)) return showMsg('請提供有效的商品網址（http/https）', 'err');
+    $('addBtn').disabled = true;
+    showMsg('新增中…');
+    try {
+      const data = await readData();
+      if (data.products.some((p) => p.url === url)) {
+        showMsg('此商品網址已在追蹤清單中', 'err');
+      } else {
+        const now = new Date().toISOString();
+        data.products.push({
+          id: uuid(), url, name: url, site: detectSite(url),
+          currentPrice: null, prevPrice: null,
+          createdAt: now, lastChecked: null, lastError: null, history: [],
+        });
+        await writeData(data);
+        $('url').value = '';
+        showMsg('已加入追蹤，名稱與價格將於後端下一輪追蹤時補上。', 'ok');
+        await render();
+      }
+    } catch (e) {
+      showMsg('新增失敗：' + e.message, 'err');
+    } finally {
+      $('addBtn').disabled = !connected;
+    }
+  }
+
+  async function removeProduct(id) {
+    const data = await readData();
+    data.products = data.products.filter((p) => p.id !== id);
+    await writeData(data);
+    await render();
+  }
+
+  // ---- 事件 ----
+  $('connBtn').addEventListener('click', () => connect(connected /* 已連線時=重新選檔 */));
+  $('addBtn').addEventListener('click', addProduct);
+  $('refreshBtn').addEventListener('click', render);
+  $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') addProduct(); });
+  document.addEventListener('click', async (e) => {
+    const delId = e.target.getAttribute && e.target.getAttribute('data-del');
+    if (delId) {
+      if (!confirm('確定刪除此追蹤商品？')) return;
+      try { await removeProduct(delId); }
+      catch (err) { showMsg('刪除失敗：' + err.message, 'err'); }
+    }
+  });
+
+  tryAutoConnect();
+  </script>
+</body>
+</html>
