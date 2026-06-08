@@ -26,8 +26,10 @@ price-tracking/
 - **後端 `backend/tracker.js`**：常駐、開機自啟。每小時（`0 * * * *`）讀 `products.json`，
   爬每個商品現價，與該商品上一輪（前一小時）的價格比較；不同則發 Telegram。
 - **前端 `frontend/server.js`**：需要時才開。只做新增（存網址）、顯示、刪除，直接讀寫同一個 `products.json`。
-- 兩者**不互相呼叫**，只透過共用的 `data/products.json` 溝通。
-- 新增商品時前端只存網址；**名稱與價格由後端下一輪追蹤時補上**（後端啟動時也會先跑一次）。
+- 兩者主要透過共用的 `data/products.json` 溝通；此外前端新增商品後，會透過後端的內部觸發埠
+  （`trackerPort`，預設 3001，僅綁 localhost）通知後端**立即對該筆取價**，不必等整點排程。
+- 新增商品時前端只存網址；名稱與價格由後端取價時補上。後端在線時通常數秒內補齊（前端會自動輪詢顯示）；
+  **後端未啟動時則退回每小時排程**（後端啟動時也會先跑一次）。
 
 ## 功能對照（規格）
 
@@ -189,10 +191,30 @@ node uninstall-service.js              # 卸載
 | 項目 | 預設 | 環境變數 |
 | --- | --- | --- |
 | 前端監聽埠 | 3000 | `PORT` |
+| 後端立即取價觸發埠 | 3001 | `TRACKER_PORT` |
 | Telegram token | （於 config.js 填入） | `TG_TOKEN` |
 | Telegram chat ids | （於 config.js 填入） | `TG_CHAT_IDS`（逗號分隔） |
 | 追蹤排程 | `0 * * * *`（每小時） | `TRACK_CRON` |
 | 啟動時先跑一次 | 是 | `RUN_ON_START=0` 可關閉 |
+
+## 版本號
+
+前後端各自維護一個程式版本號，網頁頁尾顯示 `前端 vX / 後端 vY`（後端離線時顯示「離線」）。
+
+| 項目 | 檔案 | 對外 |
+| --- | --- | --- |
+| 後端版本 | `backend/version.js` | 後端觸發埠 `GET /version` → `{ "version": N }`（已開 CORS 供 `file://` 讀取） |
+| 前端版本（伺服器版） | `frontend/version.js` | 前端 `GET /api/version` → `{ frontend, backend }`（backend 向 3001 取，離線為 `null`） |
+| 前端版本（單檔版 `tracker.html`） | 內嵌常數 `FRONTEND_VERSION` | 直接向 `http://127.0.0.1:3001/version` 取後端版本 |
+
+> 前端有兩套 UI：伺服器版（`frontend/server.js` + `frontend/public/`，http://127.0.0.1:3000）與單檔版（`tracker.html`，`file://` 直接讀寫 `products.json`）。兩者共用同一個「前端版本」概念，`tracker.html` 內嵌的 `FRONTEND_VERSION` 須與 `frontend/version.js` 保持一致。
+
+**規則（務必遵守）：**
+
+- 只要修改到 **`backend/`** 底下的程式碼，就把 `backend/version.js` 的數字 **+1**。
+- 只要修改到 **`frontend/`** 底下的程式碼**或 `tracker.html`**，就把 `frontend/version.js` 的數字 **+1**，並同步更新 `tracker.html` 內嵌的 `FRONTEND_VERSION`。
+- 同時改到前後端，兩個都各自 +1。
+- 改 `README.md`、`config.js`、資料檔等非程式碼不需要 bump。
 
 ## 排程語意
 

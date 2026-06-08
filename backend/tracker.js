@@ -1,12 +1,15 @@
+const http = require('http');
 const cron = require('node-cron');
 const config = require('../config');
 const store = require('../shared/store');
 const scraper = require('./scraper');
 const telegram = require('./telegram');
+const VERSION = require('./version');
 
 // 抓單一商品現價，與「前一小時價格」(currentPrice)比較，有變動發 Telegram。
+// opts.notifyNew=true：新增商品後的立即取價，成功/失敗都另發 Telegram 告知。
 // 回傳 { changed, price } 或 null（取價失敗）
-async function trackOne(product) {
+async function trackOne(product, opts = {}) {
   let scraped;
   try {
     scraped = await scraper.fetchProduct(product.url);
@@ -16,6 +19,11 @@ async function trackOne(product) {
       p.lastChecked = new Date().toISOString();
       p.lastError = err.message;
     });
+    if (opts.notifyNew) {
+      await telegram
+        .notifyNewProductFailed({ url: product.url, error: err.message })
+        .catch((e) => console.error('[tracker] 新增取價失敗通知發送失敗：', e.message));
+    }
     return null;
   }
 
@@ -49,6 +57,13 @@ async function trackOne(product) {
   } else {
     console.log(`[tracker]  = ${product.name} 價格未變（NT$${now}）`);
   }
+
+  if (opts.notifyNew) {
+    console.log(`[tracker]  ✉ 發送新增商品通知：${scraped.name || product.url}（NT$${now}）`);
+    await telegram
+      .notifyNewProduct({ name: scraped.name || product.name, url: product.url, price: now })
+      .catch((e) => console.error('[tracker] 新增商品通知發送失敗：', e.message));
+  }
   return { changed, price: now };
 }
 
@@ -72,8 +87,53 @@ async function trackAll() {
   }
 }
 
+// 內部觸發伺服器：前端新增商品後 POST /track/:id，立即對該筆取價（僅綁 localhost）。
+// 立即回 202 後才開始爬蟲，避免讓前端等待整段（可能數十秒）的取價流程。
+function startTriggerServer() {
+  const server = http.createServer((req, res) => {
+    // 允許 file:// 開啟的 tracker.html 跨來源讀取（僅綁 localhost，風險低）
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      return res.end();
+    }
+    // 版本查詢：供前端顯示後端版本號
+    if (req.method === 'GET' && req.url === '/version') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ version: VERSION }));
+    }
+    const m = req.url && req.url.match(/^\/track\/([^/?#]+)$/);
+    if (req.method !== 'POST' || !m) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'not found' }));
+    }
+    const id = decodeURIComponent(m[1]);
+    const product = store.getById(id);
+    if (!product) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: '找不到商品' }));
+    }
+    console.log(`[tracker] 收到前端立即取價請求：${product.url}`);
+    res.writeHead(202, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ accepted: true }));
+    // 與每小時排程共用同一個 browser instance、各自開 context，併發執行安全。
+    // notifyNew：取價完成後立即發 Telegram 告知（成功附價格，失敗附原因）。
+    trackOne(product, { notifyNew: true }).catch((e) =>
+      console.error('[tracker] 立即取價例外：', e)
+    );
+  });
+  server.on('error', (e) => console.error(`[tracker] 觸發伺服器錯誤：${e.message}`));
+  server.listen(config.trackerPort, config.host, () => {
+    console.log(`[tracker] 立即取價觸發埠： http://${config.host}:${config.trackerPort}`);
+  });
+}
+
 async function start() {
-  console.log(`[tracker] 後端追蹤啟動，排程='${config.trackCron}'（每小時比對前一小時價格）`);
+  console.log(`[tracker] 後端追蹤啟動 v${VERSION}，排程='${config.trackCron}'（每小時比對前一小時價格）`);
+
+  // 內部觸發埠先開，讓前端新增商品後可立即通知取價
+  startTriggerServer();
 
   // 排程先掛上，不受網路就緒影響（cron 觸發時網路通常已就緒，且發送本身會重試）
   cron.schedule(config.trackCron, () => {

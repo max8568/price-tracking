@@ -80,6 +80,26 @@ async function sendMessage(text, opts) {
   return results;
 }
 
+// 新增商品（立即取價成功）通知
+async function notifyNewProduct({ name, url, price }) {
+  const text =
+    `🆕 *新增追蹤商品*\n` +
+    `${escapeMd(name)}\n` +
+    `目前價格：NT$${price.toLocaleString()}\n` +
+    `${escapeMd(url)}`;
+  return sendMessage(text);
+}
+
+// 新增商品取價失敗通知
+async function notifyNewProductFailed({ url, error }) {
+  const text =
+    `⚠️ *新增追蹤商品取價失敗*\n` +
+    `${escapeMd(url)}\n` +
+    `原因：${escapeMd(error)}\n` +
+    `將於下一輪排程自動重試。`;
+  return sendMessage(text);
+}
+
 // 變價通知
 async function notifyPriceChange({ name, url, oldPrice, newPrice }) {
   const diff = newPrice - oldPrice;
@@ -89,8 +109,14 @@ async function notifyPriceChange({ name, url, oldPrice, newPrice }) {
     `💰 *價格變動*\n` +
     `${escapeMd(name)}\n` +
     `NT$${oldPrice.toLocaleString()} → NT$${newPrice.toLocaleString()}（${diffText}）\n` +
-    `${url}`;
+    `${escapeMd(url)}`;
   return sendMessage(text);
 }
 
-module.exports = { sendMessage, notifyPriceChange, waitForNetwork };
+module.exports = {
+  sendMessage,
+  notifyPriceChange,
+  notifyNewProduct,
+  notifyNewProductFailed,
+  waitForNetwork,
+};

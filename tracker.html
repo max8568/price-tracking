@@ -45,6 +45,7 @@
     .gate { text-align:center; padding:28px; color:var(--muted); }
     .gate .big { font-size:15px; color:var(--text); margin-bottom:6px; font-weight:600; }
     .hide { display:none; }
+    .ver { text-align:center; color:var(--muted); font-size:12px; margin-top:24px; }
   </style>
 </head>
 <body>
@@ -100,6 +101,8 @@
       </table>
       <div id="empty" class="empty hide">尚無追蹤商品</div>
     </div>
+
+    <footer id="ver" class="ver">版本載入中…</footer>
   </div>
 
   <script>
@@ -110,6 +113,10 @@
   const $ = (id) => document.getElementById(id);
   const SITE_LABEL = { momo: 'momo', pchome: 'PChome', shopee: '蝦皮', unknown: '其他' };
   const SUPPORTED = typeof window.showOpenFilePicker === 'function';
+
+  // 前端版本號（每次變更 tracker.html 時 +1，與 frontend/version.js 一致）
+  const FRONTEND_VERSION = 4;
+  const TRACKER_PORT = 3001; // 後端觸發埠（config.js 的 trackerPort 預設值）
 
   let handle = null;     // FileSystemFileHandle
   let connected = false;
@@ -307,15 +314,23 @@
         showMsg('此商品網址已在追蹤清單中', 'err');
       } else {
         const now = new Date().toISOString();
+        const id = uuid();
         data.products.push({
-          id: uuid(), url, name: url, site: detectSite(url),
+          id, url, name: url, site: detectSite(url),
           currentPrice: null, prevPrice: null,
           createdAt: now, lastChecked: null, lastError: null, history: [],
         });
         await writeData(data);
         $('url').value = '';
-        showMsg('已加入追蹤，名稱與價格將於後端下一輪追蹤時補上。', 'ok');
         await render();
+        // 通知後端立即取價（CORS 已開）；後端離線則退回每小時排程
+        const ok = await triggerImmediateFetch(id);
+        if (ok) {
+          showMsg('已加入追蹤，正在請後端立即取價…', 'ok');
+          pollForPrice(id); // 背景輪詢，不阻塞
+        } else {
+          showMsg('已加入追蹤；後端未啟動，名稱與價格將於下一輪排程補上。', 'ok');
+        }
       }
     } catch (e) {
       showMsg('新增失敗：' + e.message, 'err');
@@ -331,10 +346,48 @@
     await render();
   }
 
+  // ---- 版本號（前端內嵌；後端向觸發埠查詢，離線顯示「離線」） ----
+  async function loadVersion() {
+    let backend = '離線';
+    try {
+      const res = await fetch('http://127.0.0.1:' + TRACKER_PORT + '/version');
+      if (res.ok) {
+        const v = await res.json();
+        if (v && v.version != null) backend = 'v' + v.version;
+      }
+    } catch (_) { /* 後端未啟動 */ }
+    $('ver').textContent = `前端 v${FRONTEND_VERSION}　/　後端 ${backend}`;
+  }
+
+  // ---- 立即取價（通知後端觸發埠） ----
+  // 後端寫回 products.json 後，輪詢檔案把名稱/價格反映到畫面
+  async function triggerImmediateFetch(id) {
+    try {
+      const res = await fetch('http://127.0.0.1:' + TRACKER_PORT + '/track/' + encodeURIComponent(id), { method: 'POST' });
+      return res.ok; // 202=已接受
+    } catch (_) {
+      return false; // 後端未啟動
+    }
+  }
+
+  async function pollForPrice(id, attempts = 20) {
+    for (let i = 0; i < attempts; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      let data;
+      try { data = await readData(); } catch (_) { return; }
+      await render();
+      const p = (data.products || []).find((x) => x.id === id);
+      if (!p) return; // 已被刪除
+      if (p.currentPrice != null) { showMsg(`已取得「${p.name}」價格：NT$${fmtPrice(p.currentPrice)}`, 'ok'); return; }
+      if (p.lastError) { showMsg('取價失敗，請見清單中的警告訊息。', 'err'); return; }
+    }
+    showMsg('取價需要較久，稍後請按「重新整理」查看。', '');
+  }
+
   // ---- 事件 ----
   $('connBtn').addEventListener('click', () => connect(connected /* 已連線時=重新選檔 */));
   $('addBtn').addEventListener('click', addProduct);
-  $('refreshBtn').addEventListener('click', render);
+  $('refreshBtn').addEventListener('click', () => { render(); loadVersion(); });
   $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') addProduct(); });
   document.addEventListener('click', async (e) => {
     const delId = e.target.getAttribute && e.target.getAttribute('data-del');
@@ -346,6 +399,7 @@
   });
 
   tryAutoConnect();
+  loadVersion();
   </script>
 </body>
 </html>

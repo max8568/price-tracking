@@ -26,6 +26,8 @@ module.exports = {
   trackCron: process.env.TRACK_CRON || '0 * * * *', // 每小時整點
   // 後端啟動時是否先跑一次（補上新加入商品的名稱/價格基準）
   runOnStart: process.env.RUN_ON_START !== '0',
+  // 後端內部觸發埠（前端新增商品後通知後端立即取價；僅綁 localhost）
+  trackerPort: Number(process.env.TRACKER_PORT) || 3001,
 
   // 共用資料檔（前端讀寫、後端讀寫）
   dataFile: path.join(__dirname, 'data', 'products.json'),

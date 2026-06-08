@@ -36,7 +36,7 @@ async function load() {
     const tdName = document.createElement('td');
     tdName.className = 'name';
     tdName.innerHTML =
-      `<a href="${p.url}" target="_blank" rel="noopener">${escapeHtml(p.name)}</a>` +
+      `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.name)}</a>` +
       (p.lastError ? `<div class="muted err">取價警告：${escapeHtml(p.lastError)}</div>` : '') +
       (p.currentPrice == null && !p.lastError ? `<div class="muted">等待後端首次取價…</div>` : '');
 
@@ -67,6 +67,26 @@ async function load() {
     tr.append(tdName, tdSite, tdPrice, tdPrev, tdTime, tdAct);
     rows.appendChild(tr);
   }
+  return products;
+}
+
+// 新增後輪詢，等後端立即取價完成就更新畫面（最多約 60 秒，逾時則交給排程/手動重新整理）
+async function pollForPrice(id, attempts = 20) {
+  for (let i = 0; i < attempts; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    const products = await load();
+    const p = products.find((x) => x.id === id);
+    if (!p) return; // 已被刪除
+    if (p.currentPrice != null) {
+      showMsg(`已取得「${p.name}」價格：NT$${fmtPrice(p.currentPrice)}`, 'ok');
+      return;
+    }
+    if (p.lastError) {
+      showMsg('取價失敗，請見清單中的警告訊息。', 'err');
+      return; // 列內已顯示警告
+    }
+  }
+  showMsg('取價需要較久，稍後請按「重新整理」查看。', '');
 }
 
 async function addProduct() {
@@ -85,8 +105,9 @@ async function addProduct() {
       showMsg(data.error || '新增失敗', 'err');
     } else {
       $('url').value = '';
-      showMsg('已加入追蹤，名稱與價格將於後端下一輪追蹤時補上。', 'ok');
+      showMsg('已加入追蹤，正在請後端立即取價…', 'ok');
       await load();
+      pollForPrice(data.product.id); // 背景輪詢，不阻塞按鈕
     }
   } catch (e) {
     showMsg('新增失敗：' + e.message, 'err');
@@ -104,8 +125,21 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+// 頁尾顯示前後端版本號（後端離線時顯示「離線」）
+async function loadVersion() {
+  try {
+    const res = await fetch('/api/version');
+    const v = await res.json();
+    const backend = v.backend == null ? '離線' : 'v' + v.backend;
+    $('ver').textContent = `前端 v${v.frontend}　/　後端 ${backend}`;
+  } catch (e) {
+    $('ver').textContent = '版本資訊載入失敗';
+  }
+}
+
 $('addBtn').addEventListener('click', addProduct);
-$('refreshBtn').addEventListener('click', load);
+$('refreshBtn').addEventListener('click', () => { load(); loadVersion(); });
 $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') addProduct(); });
 
 load();
+loadVersion();
