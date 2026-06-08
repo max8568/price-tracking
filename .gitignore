@@ -10,3 +10,4 @@ config.js
 
 # 本機工具狀態
 .claude/
+memory/
