@@ -2,7 +2,8 @@ const TelegramBot = require('node-telegram-bot-api');
 const dns = require('dns').promises;
 const config = require('../config');
 
-// 不開 polling，只用來送訊息（沿用 pttTelegramBot 的 bot token）
+// 建構時不開 polling；後端 tracker 呼叫 startCommandListener() 後才開始收訊息
+//（沿用 pttTelegramBot 的 bot token，該 bot 已不再 polling，無 409 衝突疑慮）
 const bot = new TelegramBot(config.telegramToken, { polling: false });
 
 const TELEGRAM_HOST = 'api.telegram.org';
@@ -47,12 +48,12 @@ async function waitForNetwork({ timeoutMs = 120000, intervalMs = 3000 } = {}) {
 }
 
 // 發送單一訊息到單一 chat，遇暫時性網路錯誤時以指數退避重試
-async function sendToChat(chatId, text, { retries = 4 } = {}) {
+async function sendToChat(chatId, text, { retries = 4, disablePreview = false } = {}) {
   for (let attempt = 0; ; attempt++) {
     try {
       await bot.sendMessage(chatId, text, {
         parse_mode: 'Markdown',
-        disable_web_page_preview: false,
+        disable_web_page_preview: disablePreview,
       });
       return { chatId, ok: true, attempts: attempt + 1 };
     } catch (err) {
@@ -113,10 +114,54 @@ async function notifyPriceChange({ name, url, oldPrice, newPrice }) {
   return sendMessage(text);
 }
 
+// 啟動指令監聽（polling）。handler(arg) 回傳要回覆給使用者的文字。
+// onAddItem：/add [商品連結]，onDeleteItem：/del [代碼或連結]，onListItems：/list（無參數）
+function startCommandListener({ onAddItem, onDeleteItem, onListItems }) {
+  const commands = [
+    { name: 'add', usage: '用法：/add [商品連結]', handler: onAddItem },
+    { name: 'del', usage: '用法：/del [4碼代碼或商品連結]', handler: onDeleteItem },
+    // usage 為空＝不需參數；noPreview＝回覆關閉連結預覽（清單含多個連結）
+    { name: 'list', handler: onListItems, noPreview: true },
+  ];
+  for (const cmd of commands) {
+    // (?!\S) 確保指令後是空白或結尾，避免 /addxxx 之類誤觸發
+    const re = new RegExp(`^\\/${cmd.name}(?:@\\S+)?(?!\\S)\\s*(\\S+)?`);
+    bot.onText(re, async (msg, match) => {
+      const chatId = String(msg.chat.id);
+      // 授權檢查：只處理設定內的 chat，其他來源靜默忽略
+      if (!config.telegramChatIds.includes(chatId)) {
+        console.warn(`[telegram] 忽略未授權 chat ${chatId} 的 /${cmd.name} 指令`);
+        return;
+      }
+      const arg = match && match[1];
+      let reply;
+      if (!arg && cmd.usage) {
+        reply = cmd.usage;
+      } else {
+        try {
+          reply = await cmd.handler(arg);
+        } catch (err) {
+          console.error(`[telegram] /${cmd.name} 處理失敗：${err.message}`);
+          reply = `⚠️ 處理失敗：${escapeMd(err.message)}`;
+        }
+      }
+      await sendToChat(chatId, reply, { disablePreview: !!cmd.noPreview });
+    });
+  }
+  bot.on('polling_error', (err) => {
+    // 409 Conflict 代表同一個 token 有另一個程式在 polling
+    console.error(`[telegram] polling 錯誤：${err.message}`);
+  });
+  bot.startPolling();
+  console.log('[telegram] 指令監聽已啟動（polling），支援 /add、/del、/list');
+}
+
 module.exports = {
   sendMessage,
   notifyPriceChange,
   notifyNewProduct,
   notifyNewProductFailed,
   waitForNetwork,
+  startCommandListener,
+  escapeMd,
 };

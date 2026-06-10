@@ -40,6 +40,10 @@ async function load() {
       (p.lastError ? `<div class="muted err">取價警告：${escapeHtml(p.lastError)}</div>` : '') +
       (p.currentPrice == null && !p.lastError ? `<div class="muted">等待後端首次取價…</div>` : '');
 
+    // 4 碼短代碼（Telegram /del 可用）
+    const tdCode = document.createElement('td');
+    tdCode.innerHTML = `<span class="pill">${escapeHtml(p.code || '—')}</span>`;
+
     const tdSite = document.createElement('td');
     tdSite.innerHTML = `<span class="pill">${SITE_LABEL[p.site] || p.site}</span>`;
 
@@ -64,7 +68,7 @@ async function load() {
     const tdAct = document.createElement('td');
     tdAct.innerHTML = `<button class="btn-del" data-del="${p.id}">刪除</button>`;
 
-    tr.append(tdName, tdSite, tdPrice, tdPrev, tdTime, tdAct);
+    tr.append(tdName, tdCode, tdSite, tdPrice, tdPrev, tdTime, tdAct);
     rows.appendChild(tr);
   }
   return products;

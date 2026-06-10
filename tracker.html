@@ -90,6 +90,7 @@
         <thead>
           <tr>
             <th>商品</th>
+            <th>代碼</th>
             <th>站別</th>
             <th>現價</th>
             <th>前一次</th>
@@ -115,7 +116,7 @@
   const SUPPORTED = typeof window.showOpenFilePicker === 'function';
 
   // 前端版本號（每次變更 tracker.html 時 +1，與 frontend/version.js 一致）
-  const FRONTEND_VERSION = 4;
+  const FRONTEND_VERSION = 5;
   const TRACKER_PORT = 3001; // 後端觸發埠（config.js 的 trackerPort 預設值）
 
   let handle = null;     // FileSystemFileHandle
@@ -266,6 +267,10 @@
         (p.lastError ? `<div class="muted err">取價警告：${escapeHtml(p.lastError)}</div>` : '') +
         (p.currentPrice == null && !p.lastError ? `<div class="muted">等待後端首次取價…</div>` : '');
 
+      // 4 碼短代碼（Telegram /del 可用）
+      const tdCode = document.createElement('td');
+      tdCode.innerHTML = `<span class="pill">${escapeHtml(p.code || '—')}</span>`;
+
       const tdSite = document.createElement('td');
       tdSite.innerHTML = `<span class="pill">${SITE_LABEL[p.site] || p.site}</span>`;
 
@@ -289,7 +294,7 @@
       const tdAct = document.createElement('td');
       tdAct.innerHTML = `<button class="btn-del" data-del="${p.id}">刪除</button>`;
 
-      tr.append(tdName, tdSite, tdPrice, tdPrev, tdTime, tdAct);
+      tr.append(tdName, tdCode, tdSite, tdPrice, tdPrev, tdTime, tdAct);
       rows.appendChild(tr);
     }
   }
@@ -300,6 +305,17 @@
       ('xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
         const r = (Math.random() * 16) | 0; return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
       }));
+  }
+
+  // 產生 4 碼唯一亂數代碼（與 shared/store.js 的 genCode 一致）
+  const CODE_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  function genCode(products) {
+    const taken = new Set(products.map((p) => p.code).filter(Boolean));
+    for (;;) {
+      let code = '';
+      for (let i = 0; i < 4; i++) code += CODE_CHARS[(Math.random() * CODE_CHARS.length) | 0];
+      if (!taken.has(code)) return code;
+    }
   }
 
   async function addProduct() {
@@ -316,7 +332,7 @@
         const now = new Date().toISOString();
         const id = uuid();
         data.products.push({
-          id, url, name: url, site: detectSite(url),
+          id, code: genCode(data.products), url, name: url, site: detectSite(url),
           currentPrice: null, prevPrice: null,
           createdAt: now, lastChecked: null, lastError: null, history: [],
         });

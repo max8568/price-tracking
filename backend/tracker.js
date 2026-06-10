@@ -143,11 +143,59 @@ async function start() {
   // 開機自啟時網卡/DNS 可能尚未準備好，先等網路就緒再發啟動通知，避免通知遺失。
   await telegram.waitForNetwork({ timeoutMs: 120000 });
 
+  // Telegram 指令監聽：/add [商品連結] 加入追蹤並立即取價、/del [商品連結] 移除追蹤
+  // （/add 的驗證/去重邏輯與前端 POST /api/products 一致）
+  telegram.startCommandListener({
+    onAddItem: async (url) => {
+      if (!/^https?:\/\//i.test(url)) return '⚠️ 請提供有效的商品網址（http/https）';
+      if (store.findByUrl(url)) return '⚠️ 此商品網址已在追蹤清單中';
+      const item = store.add({ url }); // store.add 內建 detectSite，會寫入 products.json
+      trackOne(item, { notifyNew: true }).catch((e) =>
+        console.error('[tracker] /add 立即取價例外：', e)
+      );
+      return `✅ 已加入追蹤（代碼：${item.code}），正在取得價格…`;
+    },
+    // 接受 4 碼代碼或商品連結
+    onDeleteItem: async (input) => {
+      const item = store.findByUrl(input) || store.findByCode(input);
+      if (!item) return '⚠️ 追蹤清單中找不到此商品（請輸入 4 碼代碼或商品連結）';
+      store.remove(item.id);
+      console.log(`[tracker] /del 移除追蹤：[${item.code}] ${item.name}`);
+      return `🗑 已移除追蹤：${telegram.escapeMd(item.name)}`;
+    },
+    onListItems: async () => {
+      const products = store.list();
+      if (!products.length) return '📋 追蹤清單是空的，用 /add [商品連結] 新增。';
+      const lines = [`📋 *追蹤清單*（共 ${products.length} 項）`];
+      products.forEach((p, i) => {
+        const price =
+          p.currentPrice == null ? '尚未取得' : `NT$${p.currentPrice.toLocaleString()}`;
+        let priceLine = `　　💰 現價　${price}`;
+        if (p.prevPrice != null && p.prevPrice !== p.currentPrice) {
+          priceLine += p.currentPrice > p.prevPrice ? ' 🔼' : ' 🔽';
+        }
+        const prev = p.prevPrice == null ? '—' : `NT$${p.prevPrice.toLocaleString()}`;
+        const checked = p.lastChecked
+          ? new Date(p.lastChecked).toLocaleString('zh-TW', { hour12: false })
+          : '尚未檢查';
+        lines.push('');
+        lines.push(`${i + 1}. [${telegram.escapeMd(p.name)}](${p.url})`);
+        lines.push(`　　🏷 代碼　\`${p.code}\``);
+        lines.push(`　　🏪 站別　${p.site}`);
+        lines.push(priceLine);
+        lines.push(`　　💸 前次　${prev}`);
+        lines.push(`　　🕐 檢查　${checked}`);
+        if (p.lastError) lines.push(`　　⚠️ ${telegram.escapeMd(p.lastError)}`);
+      });
+      return lines.join('\n');
+    },
+  });
+
   // 服務啟動通知（開機自啟、手動重啟、崩潰自動重啟都會發）
   const startedAt = new Date().toLocaleString('zh-TW', { hour12: false });
   const count = store.list().length;
   telegram
-    .sendMessage(`🟢 *價格追蹤服務已啟動*\n時間：${startedAt}\n追蹤商品：${count} 項`)
+    .sendMessage(`🟢 *價格追蹤服務已啟動* v${VERSION}\n時間：${startedAt}\n追蹤商品：${count} 項`)
     .catch((e) => console.error('[tracker] 啟動通知發送失敗：', e.message));
 
   if (config.runOnStart) {

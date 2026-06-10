@@ -15,12 +15,33 @@ function ensureFile() {
   }
 }
 
+// 產生 4 碼唯一亂數代碼（a-z0-9），供 Telegram /del 以短碼刪除
+const CODE_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+function genCode(taken) {
+  for (;;) {
+    let code = '';
+    for (let i = 0; i < 4; i++) code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+    if (!taken.has(code)) return code;
+  }
+}
+
 function readAll() {
   ensureFile();
   try {
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
     const data = JSON.parse(raw || '{}');
     if (!Array.isArray(data.products)) data.products = [];
+    // 一次性遷移：替沒有 code 的舊資料補上
+    const taken = new Set(data.products.map((p) => p.code).filter(Boolean));
+    let migrated = false;
+    for (const p of data.products) {
+      if (!p.code) {
+        p.code = genCode(taken);
+        taken.add(p.code);
+        migrated = true;
+      }
+    }
+    if (migrated) writeAll(data);
     return data;
   } catch (err) {
     console.error('[store] 讀取資料檔失敗，回傳空清單：', err.message);
@@ -48,12 +69,18 @@ function findByUrl(url) {
   return readAll().products.find((p) => p.url === url) || null;
 }
 
+function findByCode(code) {
+  const c = String(code).toLowerCase();
+  return readAll().products.find((p) => p.code === c) || null;
+}
+
 // 新增商品。前端只給 url；名稱/價格留待後端追蹤時補上
 function add(product) {
   const data = readAll();
   const now = new Date().toISOString();
   const item = {
     id: uuidv4(),
+    code: genCode(new Set(data.products.map((p) => p.code))), // 4 碼短代碼，供 /del 使用
     url: product.url,
     name: product.name || product.url, // 佔位，後端補上真實名稱
     site: product.site || detectSite(product.url),
@@ -88,4 +115,4 @@ function update(id, updater) {
   return item;
 }
 
-module.exports = { list, getById, findByUrl, add, remove, update, readAll, writeAll };
+module.exports = { list, getById, findByUrl, findByCode, add, remove, update, readAll, writeAll };
