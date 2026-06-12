@@ -4,7 +4,13 @@ const config = require('../config');
 
 // 建構時不開 polling；後端 tracker 呼叫 startCommandListener() 後才開始收訊息
 //（沿用 pttTelegramBot 的 bot token，該 bot 已不再 polling，無 409 衝突疑慮）
-const bot = new TelegramBot(config.telegramToken, { polling: false });
+// request.timeout：library 的 polling 迴圈要等當前 getUpdates settle 才會排下一輪，
+// 網路中斷時懸掛的請求會讓 polling 永久卡死；client 端 20s 超時讓它 reject 後自我恢復
+//（須大於長輪詢 server 端持有的 10s，避免誤殺正常請求）
+const bot = new TelegramBot(config.telegramToken, {
+  polling: false,
+  request: { timeout: 20000 },
+});
 
 const TELEGRAM_HOST = 'api.telegram.org';
 
