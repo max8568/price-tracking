@@ -154,9 +154,26 @@ function startCommandListener({ onAddItem, onDeleteItem, onListItems }) {
       await sendToChat(chatId, reply, { disablePreview: !!cmd.noPreview });
     });
   }
+  // 409 只告警一次，避免重複發訊息
+  let conflictHandled = false;
   bot.on('polling_error', (err) => {
-    // 409 Conflict 代表同一個 token 有另一個程式在 polling
-    console.error(`[telegram] polling 錯誤：${err.message}`);
+    const msg = String((err && err.message) || err);
+    // 409 Conflict：同一 token 有另一個程式也在 polling getUpdates。
+    // 繼續輪詢只會互相搶 update（指令收不到）並把 log 洗爆，所以停掉本機 polling
+    // 並告警一次，交由人工排除重複實例（正常情況一個 token 只該有一個 poller）。
+    if (/409/.test(msg) && /conflict/i.test(msg)) {
+      if (conflictHandled) return;
+      conflictHandled = true;
+      console.error(`[telegram] 偵測到 409 衝突，已停止本機 polling（另一程式正用同一 token）：${msg}`);
+      bot.stopPolling().catch(() => {});
+      sendMessage(
+        `⚠️ *Telegram 指令監聽已停止*\n` +
+          `偵測到 409 衝突：有另一個程式正用同一個 bot token 在 polling。\n` +
+          `指令（/add /del /list）暫時無法使用，請確認只有一個服務在收訊息。`
+      ).catch((e) => console.error('[telegram] 409 告警發送失敗：', e.message));
+      return;
+    }
+    console.error(`[telegram] polling 錯誤：${msg}`);
   });
   bot.startPolling();
   console.log('[telegram] 指令監聽已啟動（polling），支援 /add、/del、/list');
