@@ -84,16 +84,21 @@ async function extractFromJsonLd(page) {
 
     for (const node of candidates) {
       const type = node['@type'];
-      const isProduct =
-        type === 'Product' || (Array.isArray(type) && type.includes('Product'));
-      if (!isProduct) continue;
+      const hasType = (t) => type === t || (Array.isArray(type) && type.includes(t));
+      if (!hasType('Product') && !hasType('ProductGroup')) continue;
 
-      let offers = node.offers;
-      if (Array.isArray(offers)) offers = offers[0];
-      const priceRaw = offers && (offers.price ?? offers.lowPrice ?? offers.highPrice);
-      const price = parsePrice(priceRaw);
-      if (price != null) {
-        return { name: node.name ? String(node.name).trim() : null, price };
+      // ProductGroup（momo 2026 新版商品頁）：offers 藏在 hasVariant[n] 內，
+      // 商品名稱取群組層 name（variant 的 name 只是規格，如「單一規格」）
+      const offerSources = hasType('ProductGroup')
+        ? [].concat(node.hasVariant || []).map((v) => v && v.offers)
+        : [node.offers];
+      for (let offers of offerSources) {
+        if (Array.isArray(offers)) offers = offers[0];
+        const priceRaw = offers && (offers.price ?? offers.lowPrice ?? offers.highPrice);
+        const price = parsePrice(priceRaw);
+        if (price != null) {
+          return { name: node.name ? String(node.name).trim() : null, price };
+        }
       }
     }
   }
