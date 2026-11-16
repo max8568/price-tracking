@@ -8,7 +8,8 @@ let browserPromise = null;
 async function getBrowser() {
   if (!browserPromise) {
     browserPromise = chromium.launch({
-      headless: true,
+      // momo（Akamai）自 2026-11 起對無視窗瀏覽器一律回 403，開視窗版才拿得到頁面
+      headless: false,
       args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
     });
   }
@@ -37,6 +38,8 @@ const SITE_SELECTORS = {
       '#price',
       '.priceArea .price',
       'li.special_price',
+      // momo 第三方商店頁（/TP/.../goodsDetail/...）：無 JSON-LD，價格依規格不同時顯示「2,850~4,550」，第一個為最低價
+      '.primary-price-value',
       '.seoPrice',
     ],
   },
